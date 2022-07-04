@@ -262,7 +262,6 @@ class App(tk.Tk):
                         ImageTk.PhotoImage(
                             file=f"assets/digit-{i}-{ordinal}-{size}.png"))
 
-
         # GUI bitmaps
         self.label_frame_images = dict()
         self.label_frame_images['voltage'] = ImageTk.PhotoImage(
@@ -431,16 +430,21 @@ class App(tk.Tk):
 
         pt['subframes'] = {}
 
-        pt['subframes']['voltage-limited'] = ttk.Frame(fpt, width=244, height=18)
-        ttk.Label(pt['subframes']['voltage-limited'], image=self.label_status_images['voltage-limited']).pack()
+        pt['subframes']['voltage-limited'] = ttk.Frame(fpt,
+                                                       width=244,
+                                                       height=18)
+        ttk.Label(pt['subframes']['voltage-limited'],
+                  image=self.label_status_images['voltage-limited']).pack()
         pt['subframes']['voltage-limited'].place(anchor='s', x=130, y=140)
 
         pt['subframes']['hide-limited'] = ttk.Frame(fpt, width=244, height=18)
-        ttk.Label(pt['subframes']['hide-limited'], image=self.label_status_images['hide-limited']).pack()
+        ttk.Label(pt['subframes']['hide-limited'],
+                  image=self.label_status_images['hide-limited']).pack()
         pt['subframes']['hide-limited'].place(anchor='s', x=130, y=140)
 
         pt['subframes']['ocp'] = ttk.Frame(fpt, width=244, height=18)
-        ttk.Label(pt['subframes']['ocp'], image=self.label_status_images['ocp-u']).pack()
+        ttk.Label(pt['subframes']['ocp'],
+                  image=self.label_status_images['ocp-u']).pack()
         pt['subframes']['ocp'].place(anchor='s', x=130, y=140)
 
         ####   ===============================================================
@@ -466,16 +470,21 @@ class App(tk.Tk):
 
         pt['subframes'] = {}
 
-        pt['subframes']['current-limited'] = ttk.Frame(fpt, width=244, height=18)
-        ttk.Label(pt['subframes']['current-limited'], image=self.label_status_images['current-limited']).pack()
+        pt['subframes']['current-limited'] = ttk.Frame(fpt,
+                                                       width=244,
+                                                       height=18)
+        ttk.Label(pt['subframes']['current-limited'],
+                  image=self.label_status_images['current-limited']).pack()
         pt['subframes']['current-limited'].place(anchor='s', x=130, y=140)
 
         pt['subframes']['hide-limited'] = ttk.Frame(fpt, width=244, height=18)
-        ttk.Label(pt['subframes']['hide-limited'], image=self.label_status_images['hide-limited']).pack()
+        ttk.Label(pt['subframes']['hide-limited'],
+                  image=self.label_status_images['hide-limited']).pack()
         pt['subframes']['hide-limited'].place(anchor='s', x=130, y=140)
 
         pt['subframes']['ocp'] = ttk.Frame(fpt, width=244, height=18)
-        ttk.Label(pt['subframes']['ocp'], image=self.label_status_images['ocp-i']).pack()
+        ttk.Label(pt['subframes']['ocp'],
+                  image=self.label_status_images['ocp-i']).pack()
         pt['subframes']['ocp'].place(anchor='s', x=130, y=140)
 
         ####   ===============================================================
@@ -502,17 +511,15 @@ class App(tk.Tk):
 
         pt['subframes'] = {}
 
-        pt['subframes']['outputoff'] = ttk.Frame(fpt,
-                                                width=100,
-                                                height=20)
+        pt['subframes']['outputoff'] = ttk.Frame(fpt, width=100, height=20)
         pt['subframes']['outputoff'].place(anchor='s', x=67, y=140)
-        ttk.Label(pt['subframes']['outputoff'], image=self.label_status_images['outputoff']).pack()
+        ttk.Label(pt['subframes']['outputoff'],
+                  image=self.label_status_images['outputoff']).pack()
 
-        pt['subframes']['outputon'] = ttk.Frame(fpt,
-                                                width=100,
-                                                height=20)
+        pt['subframes']['outputon'] = ttk.Frame(fpt, width=100, height=20)
         pt['subframes']['outputon'].place(anchor='s', x=67, y=140)
-        ttk.Label(pt['subframes']['outputon'], image=self.label_status_images['outputon']).pack()
+        ttk.Label(pt['subframes']['outputon'],
+                  image=self.label_status_images['outputon']).pack()
 
         ####   ===============================================================
 
@@ -714,8 +721,9 @@ class App(tk.Tk):
                                                height=80,
                                                style='SetByPSMode.TFrame')
         pt['subframes']['ps_mode'].place(x=7, y=0)
-        pt['notice'] = ttk.Label(pt['subframes']['ps_mode'],
-                                 image=self.label_frame_images['set_mode_blank'])
+        pt['notice'] = ttk.Label(
+            pt['subframes']['ps_mode'],
+            image=self.label_frame_images['set_mode_blank'])
         pt['notice'].pack()
 
         ####   ===============================================================
