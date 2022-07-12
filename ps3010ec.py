@@ -1,10 +1,8 @@
 #! /usr/bin/env python
 
 import sys
-import logging as l
 import asyncio
 import os
-from async_tkinter_loop import async_mainloop
 import tkinter as tk
 from tkinter import ttk
 from ttkwidgets import tooltips
@@ -78,7 +76,7 @@ class App(tk.Tk):
     # self.frames['Mem']['registers'][0-4]['sto_button']
     # self.frames['Mem']['registers'][0-4]['rcl_button']
 
-    def __init__(self, title, geometry, asyncQ):
+    def __init__(self, title, geometry):
         """ The application is for a Programmable Power Supply(PS) Control Interface
         for the Longwei LW-3010EC and similar
 
@@ -223,8 +221,7 @@ class App(tk.Tk):
                                     style='Root.TFrame')
         self.root_frame.grid(sticky='nsew')
 
-        # AsyncIO Q
-        self.asyncQ = asyncQ
+        # holding Queue for command to be passed over to PSU
         self.holdingQ = []
 
         self.set_by_app = False
@@ -1326,16 +1323,22 @@ class App(tk.Tk):
 
 
 #  Cooperative Processes
-async def poll_ps_status(q: asyncio.Queue, ps: PS3010EC_Modbus):
+async def poll_ps_values(q: asyncio.Queue, ps: PS3010EC_Modbus):
     """asyncio process to poll PS periodically"""
     while True:
         #        print("in poll_ps_status()")
+
+        # ps.read_status_raw is not asyncio friendly
+        # (returned_values) = await ps.read_status_raw()
+        # print(returned_values)
+        # await q.put(('polled_values', returned_values))
+
         await q.put(('polled_values', (ps.read_status_raw())))
         await asyncio.sleep(0.5)
 
 
-async def get_next_event(q: asyncio.Queue, gui: App,
-                         ps: PS3010EC_Modbus) -> None:
+async def event_dispatcher(q: asyncio.Queue, gui: App,
+                           ps: PS3010EC_Modbus) -> None:
     """asyncio process to get events out of queue"""
     try:
         while True:
@@ -1360,7 +1363,8 @@ async def get_next_event(q: asyncio.Queue, gui: App,
 
 
 async def transfer_to_asyncQ(q: asyncio.Queue, gui: App) -> None:
-    """asyncio process that pulls App events and places them on the asyncio Q
+    """asyncio process that pulls App holdingQ events and
+    places them on the asyncio Q
 
     Used to get modbus commands to the PS from the App
 
@@ -1380,9 +1384,8 @@ async def service_gui_event_loop(gui: App) -> None:
 
 
 async def main():
-    # Major components of the application
     q = asyncio.Queue()
-    gui = App("Power Supply Control Interface", "800x600", q)
+    gui = App("Power Supply Control Interface", "800x600")
     #print(f"gui.frames['Config']['comm_text_box']: {gui.frames['Config']['comm_text_box'].get()}")
     try:
         ps = PS3010EC_Modbus(gui.frames['Config']['comm_text_box'].get(),
@@ -1393,17 +1396,16 @@ async def main():
         sys.exit(1)
 
     # Cooperative processes
-    poller = asyncio.create_task(poll_ps_status(q, ps))
-    transfer = asyncio.create_task(get_next_event(q, gui, ps))
-    put_on_Q = asyncio.create_task(transfer_to_asyncQ(q, gui))
-    tk_looper = asyncio.create_task(service_gui_event_loop(gui))
+    ps_values = asyncio.create_task(poll_ps_values(q, ps))
+    dispatcher = asyncio.create_task(event_dispatcher(q, gui, ps))
+    Q_transfer = asyncio.create_task(transfer_to_asyncQ(q, gui))
+    gui_event_loop = asyncio.create_task(service_gui_event_loop(gui))
 
-    await asyncio.gather(poller,
-                         transfer,
-                         put_on_Q,
-                         tk_looper,
+    await asyncio.gather(ps_values,
+                         dispatcher,
+                         Q_transfer,
+                         gui_event_loop,
                          return_exceptions=True)
-    #await q.join()
 
 
 if __name__ == "__main__":

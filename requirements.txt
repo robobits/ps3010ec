@@ -1,8 +1,6 @@
-async-tkinter-loop>=0.3.0
 asyncio>=3.4.3
 minimalmodbus>=2.0.1
 Pillow>=9.1.0
 pyserial>=3.5
-pyserial-asyncio>=0.6
 tk>=0.1.0
 ttkwidgets>=0.12.1
