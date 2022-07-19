@@ -1,6 +1,7 @@
-asyncio>=3.4.3
-minimalmodbus>=2.0.1
-Pillow>=9.1.0
-pyserial>=3.5
-tk>=0.1.0
-ttkwidgets>=0.12.1
+asyncio==3.4.3
+Pillow==9.1.0
+pymodbus==2.5.3
+pyserial==3.5
+six==1.16.0
+tk==0.1.0
+ttkwidgets==0.12.1

@@ -7,7 +7,7 @@ import tkinter as tk
 from tkinter import ttk
 from ttkwidgets import tooltips
 import configparser
-from PS3010EC_Modbus import PS3010EC_Modbus, PS3010EC_Exception
+from PS3010EC_Modbus import PSU
 from PIL import Image, ImageTk
 from SevenSegmentModule import SevenSegmentModule
 
@@ -422,7 +422,7 @@ class App(tk.Tk):
             width=56,
             images_dp=self.number_images['l']['d'],
             images_ndp=self.number_images['l']['nd'],
-            max_value=PS3010EC_Modbus.MAX_U_RAW)
+            max_value=PSU.RawLimits.VOLTAGE)
         pt['display'].place(anchor='center', x=130, y=75)
 
         pt['subframes'] = {}
@@ -462,7 +462,7 @@ class App(tk.Tk):
             width=56,
             images_dp=self.number_images['l']['d'],
             images_ndp=self.number_images['l']['nd'],
-            max_value=PS3010EC_Modbus.MAX_I_RAW)
+            max_value=PSU.RawLimits.CURRENT)
         pt['display'].place(anchor='center', x=130, y=75)
 
         pt['subframes'] = {}
@@ -537,7 +537,7 @@ class App(tk.Tk):
             width=40,
             images_dp=self.number_images['m']['d'],
             images_ndp=self.number_images['m']['nd'],
-            max_value=PS3010EC_Modbus.MAX_U_RAW)
+            max_value=PSU.RawLimits.VOLTAGE)
         pt['display'].place(anchor='center', x=102, y=70)
 
         # 3 Up Buttons display for 'SetU'
@@ -624,7 +624,7 @@ class App(tk.Tk):
             width=40,
             images_dp=self.number_images['m']['d'],
             images_ndp=self.number_images['m']['nd'],
-            max_value=PS3010EC_Modbus.MAX_U_RAW)
+            max_value=PSU.RawLimits.CURRENT)
         pt['display'].place(anchor='center', x=102, y=70)
 
         # 3 Up Buttons display for 'SetI'
@@ -946,7 +946,7 @@ class App(tk.Tk):
                 width=14,
                 images_dp=self.number_images['s']['d'],
                 images_ndp=self.number_images['s']['nd'],
-                max_value=PS3010EC_Modbus.MAX_U_RAW)
+                max_value=PSU.RawLimits.VOLTAGE)
             rpt[-1]['U']['display'].place(anchor='center', x=x, y=80)
 
             # Memory register 'I' value
@@ -957,7 +957,7 @@ class App(tk.Tk):
                 width=14,
                 images_dp=self.number_images['s']['d'],
                 images_ndp=self.number_images['s']['nd'],
-                max_value=PS3010EC_Modbus.MAX_I_RAW)
+                max_value=PSU.RawLimits.CURRENT)
             rpt[-1]['I']['display'].place(anchor='center', x=x, y=110)
 
             # if this is a configurable memory register add the value from the config file
@@ -1014,6 +1014,7 @@ class App(tk.Tk):
     def update_last_polled_value(self, polled_values):
         """Update the GUI frames with the last polled values supplied"""
 
+        # print(polled_values)
         SetU = polled_values[0]
         SetI = polled_values[1]
         U = polled_values[2]
@@ -1098,21 +1099,21 @@ class App(tk.Tk):
         #print(f"in set_regulation_mode().  RegMode: {RegMode}")
 
         # Constant Current Mode
-        if RegMode == PS3010EC_Modbus.REGULATION_MODE_CURRENT:
+        if RegMode == PSU.RegulationMode.CURRENT:
             self.frames['I']['frame'].config(style='ActiveRegMode.TFrame')
             self.frames['I']['subframes']['current-limited'].tkraise()
             self.frames['U']['frame'].config(style='TFrame')
             self.frames['U']['subframes']['hide-limited'].tkraise()
 
         # Constant Voltage Mode
-        if RegMode == PS3010EC_Modbus.REGULATION_MODE_VOLTAGE:
+        if RegMode == PSU.RegulationMode.VOLTAGE:
             self.frames['U']['frame'].config(style='ActiveRegMode.TFrame')
             self.frames['U']['subframes']['voltage-limited'].tkraise()
             self.frames['I']['frame'].config(style='TFrame')
             self.frames['I']['subframes']['hide-limited'].tkraise()
 
         # Overcurrent Protection Active
-        if RegMode == PS3010EC_Modbus.REGULATION_MODE_OVERCURRENT_PROTECTION:
+        if RegMode == PSU.RegulationMode.OVERCURRENT_PROTECTION:
             self.frames['I']['frame'].config(style='ErrorRegMode.TFrame')
             self.frames['I']['subframes']['ocp'].tkraise()
             self.frames['U']['frame'].config(style='ErrorRegMode.TFrame')
@@ -1323,41 +1324,42 @@ class App(tk.Tk):
 
 
 #  Cooperative Processes
-async def poll_ps_values(q: asyncio.Queue, ps: PS3010EC_Modbus):
+async def poll_ps_values(q: asyncio.Queue, ps: PSU):
     """asyncio process to poll PS periodically"""
     while True:
-        #        print("in poll_ps_status()")
+        # print("in poll_ps_status()")
 
-        # ps.read_status_raw is not asyncio friendly
+        # ps.all_raw is not asyncio friendly
         # (returned_values) = await ps.read_status_raw()
         # print(returned_values)
         # await q.put(('polled_values', returned_values))
 
-        await q.put(('polled_values', (ps.read_status_raw())))
+        #print(ps.all_raw)
+        await q.put(('polled_values', (ps.all_raw)))
         await asyncio.sleep(0.5)
 
 
-async def event_dispatcher(q: asyncio.Queue, gui: App,
-                           ps: PS3010EC_Modbus) -> None:
+async def event_dispatcher(q: asyncio.Queue, gui: App, ps: PSU) -> None:
     """asyncio process to get events out of queue"""
     try:
         while True:
-            #            print("in get_next_event()")
+            #print("in get_next_event()")
             event_type, parameters = await q.get()
             #print(f"event_type: {event_type}")
-            #print(f"result: {result}")
+            #print(f"parameters: {parameters}")
             if event_type == 'polled_values':
                 gui.update_last_polled_value(parameters)
             if event_type == 'toggleRS':
-                ps.toggleRS()
+                ps.toggle_output()
             if event_type == 'applySet':
-                ps.applySet(parameters)
+                ps.apply_set_points(parameters)
             if event_type == 'appQuit':
                 sys.exit(0)
 
     except Exception as e:
         print(repr(e))
         print(e)
+        print(f'event_type={event_type}')
         print("exit(1) from get_next_event()")
         sys.exit(1)
 
@@ -1388,8 +1390,7 @@ async def main():
     gui = App("Power Supply Control Interface", "800x600")
     #print(f"gui.frames['Config']['comm_text_box']: {gui.frames['Config']['comm_text_box'].get()}")
     try:
-        ps = PS3010EC_Modbus(gui.frames['Config']['comm_text_box'].get(),
-                             debug=False)
+        ps = PSU(gui.frames['Config']['comm_text_box'].get(), debug=False)
     except IOError as e:
         print(repr(e))
         print(e)
