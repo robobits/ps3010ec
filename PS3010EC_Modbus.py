@@ -1,21 +1,19 @@
-import minimalmodbus as mmb
+from serial.tools.list_ports import comports
+from serial import Serial, PARITY_NONE, STOPBITS_ONE, EIGHTBITS
+from pymodbus.client.sync import ModbusSerialClient
+from enum import Enum
 
 
-class PS3010EC_Exception(mmb.ModbusException):
-    """Exception class for Longwei LW-3010EC
-         Programmable Bench Power Supply.
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+class PSU_Exception(Exception):
+    pass
 
 
-class PS3010EC_Modbus(mmb.Instrument):
-    """Instrument class for Longwei LW-3010EC
+class PSU:
+    """Instrument class for Longwei LW-3010EC and compatible
          Programmable Bench Power Supply.
 
     Args:
-        * portname (str): port name
+        * com_port (str): port name
         * slaveaddress (int): slave address in the range 1 to 247
         *     Factory default of 1
         *     Address of 0 is broadcast
@@ -29,150 +27,197 @@ class PS3010EC_Modbus(mmb.Instrument):
     | Addr |    Name    |    Description    |Range |R/W|
     +------+------------+-------------------+------+---+
     |0x1000|   Set-U    |Voltage Setting    |0-32.0| W |
-    |0x0001|   Set-I    |Current Setting    |0-10.5| W |
-    |0x0002|     U      |Voltage Out        |0-32.0| R |
-    |0x0003|     I      |Current Out        |0.10.5| R |
-    |0x0004|  Run-Stop  |Output Relay On/Off| 0,1  | R |
-    |0x0005|  CC-CV-OC  |Regulation Mode    | 0,1,2| R |
-    |0x0006|Set-Run-Stop|Set Output Relay   | 0,1  | W |
-    |0x0008|Set-Address |Set Slave Address  | 0-127| W |
+    |0x1001|   Set-I    |Current Setting    |0-10.5| W |
+    |0x1002|     U      |Voltage Out        |0-32.0| R |
+    |0x1003|     I      |Current Out        |0.10.5| R |
+    |0x1004|  Run-Stop  |Output Relay On/Off| 0,1  | R |
+    |0x1005|  CC-CV-OC  |Regulation Mode    | 0,1,2| R |
+    |0x1006|Set-Run-Stop|Set Output Relay   | 0,1  | W |
+    |0x1008|Set-Address |Set Slave Address  | 0-127| W |
     ----------------------------------------------------
 
     """
 
-    REGULATION_MODE_CURRENT = 0
-    REGULATION_MODE_VOLTAGE = 1
-    REGULATION_MODE_OVERCURRENT_PROTECTION = 2
+    class Registers(Enum):
+        U_WRITE = 0x1000
+        I_WRITE = 0x1001
+        U_READ = 0x1002
+        I_READ = 0x1003
+        RUNSTOP_READ = 0x1004
+        CC_CV_OC_READ = 0x1005
+        RUNSTOP_WRITE = 0x1006
+        ADDRESS_WRITE = 0x1008
 
-    MAXIMUM_VOLTAGE = 30
-    MAXIMUM_CURRENT = 10.5
+    class RegulationMode():
+        CURRENT = 0
+        VOLTAGE = 1
+        OVERCURRENT_PROTECTION = 2
 
-    MAX_U_RAW = 3000
-    MAX_I_RAW = 1050
+    class OutputState():
+        ON = 0
+        OFF = 1
 
-    def __init__(self, portname, debug=False):
-        super().__init__(portname, 1)
-        self.serial.baudrate = 9600
-        self.serial.parity = mmb.serial.PARITY_NONE
-        self.serial.stopbits = 1
-        self.serial.timeout = 2
+    class RawLimits():
+        VOLTAGE = 3000
+        CURRENT = 1050
+
+    def __init__(self, com_port=None, slave_id=0x1, debug=False):
         self.debug = debug
-        self.mode = mmb.MODE_RTU
-        self.clear_buffers_before_each_transaction = True
+        self.slave_id = slave_id
+        self.com_port = com_port
+        if self.com_port is None:
+            self.com_port = self.find_PSU_com_port()
+        self.pymc = ModbusSerialClient(method='rtu',
+                                       port=self.com_port,
+                                       baudrate=9600,
+                                       timeout=5)
 
-    def read_status_raw(self):
-        """Read all six registers that contain status information"""
-        return self.read_registers(4096, 6)
+    def find_PSU_com_port(self):
+        """Searches for PSU USB COM port adapter"""
 
-    def read_set_values_raw(self):
-        """Read the voltage/current setpoint values and return raw values"""
-        rval = self.read_registers(4096, number_of_registers=6)
-        set_u = rval[0]
-        set_i = rval[1]
-        return set_u, set_i
+        adapter_ids = {
+            "CH340": ("1A86", "7523"),
+            "FT232": ("0403", "6001")
+            # add other serial devices here if we find them
+        }
 
-    def read_set_values(self):
-        set_u, set_i = self.read_set_values_raw()
-        set_u = set_u / 100
-        set_i = set_i / 100
-        return set_u, set_i
+        com_ports_list = list(comports())
 
-    def read_values(self):
-        """Read the present voltage/current output values"""
-        rval = self.read_registers(4098, 2)
-        voltage = rval[0] / 100
-        current = rval[1] / 100
-        return voltage, current
+        for port in com_ports_list:
+            # Don't attempt to test against adapters that do not report VID and PID
+            if port.vid and port.pid:
+                for adapter in adapter_ids:
+                    if ('{:04X}'.format(port.vid),
+                            '{:04X}'.format(port.pid)) == adapter_ids[adapter]:
+                        if self.debug:
+                            print(
+                                f'Found {port.manufacturer} adapter {adapter} on {port.device}'
+                            )
+                        # Use the last com port found
+                        if self.com_port is None or port.device > self.com_port:
+                            self.com_port = port.device
+
+        if self.com_port is None:
+            raise OSError('PSU not found')
+
+        if self.debug:
+            print(f'Attempting PSU on {self.com_port}')
+
+        return self.com_port
+
+    def write(self, address, value):
+        rc = self.pymc.write_register(address.value, value, unit=self.slave_id)
+        if rc.isError() and self.debug:
+            print(address.name, rc.message)
+
+    def read(self, address, len=1):
+        rc = self.pymc.read_holding_registers(address.value,
+                                              len,
+                                              unit=self.slave_id)
+
+        if rc.isError():
+            if self.debug:
+                print(address.name, rc.message)
+            return None
+
+        if len == 1:
+            return rc.registers[0]
+        else:
+            return rc.registers
 
     @property
-    def is_output_on(self):
-        """Read the output relay state (returns True/False)"""
-        rval = self.read_registers(4100, 1)
-        if rval[0] == 0:
-            return False
+    def current(self):
+        return self.read(PSU.Registers.I_READ) / 100
+
+    @current.setter
+    def current(self, amps):
+        if amps < 0 or amps > self.RawLimits.CURRENT:
+            raise PSU_Exception(
+                f'Requested current set point [{amps/100}] out of range [{self.RawLimits.CURRENT/100}]'
+            )
+
+        self.write(PSU.Registers.I_WRITE, int(round(amps * 100)))
+
+    @property
+    def voltage(self):
+        return self.read(PSU.Registers.U_READ) / 100
+
+    @voltage.setter
+    def voltage(self, volts):
+        if volts < 0 or volts > self.RawLimits.VOLTAGE:
+            raise PSU_Exception(
+                f'Requested voltage set point [{volts/100}] out of range [{self.RawLimits.VOLTAGE/100}]'
+            )
+
+        self.write(PSU.Registers.U_WRITE, int(round(volts * 100)))
+
+    @property
+    def all_raw(self):
+        return self.read(PSU.Registers.U_WRITE, len=6)
+
+
+#    @all.setter
+#    def all_raw(self, volts):
+#        self.write(PSU.Registers.U_WRITE, int(round(volts * 100)))
+#
+#     def read_set_values_raw(self):
+#         """Read the voltage/current setpoint values and return raw values"""
+#         rval = self.read_registers(4096, number_of_registers=6)
+#         set_u = rval[0]
+#         set_i = rval[1]
+#         return set_u, set_i
+
+    @property
+    def output(self):
+        return False if self.read(PSU.Registers.RUNSTOP_READ) == 0 else True
+
+    @output.setter
+    def output(self, on):
+        self.write(PSU.Registers.RUNSTOP_WRITE, int(on))
+
+    def toggle_output(self):
+        if self.output:
+            self.output = False
         else:
-            return True
+            self.output = True
 
-    def set_output_on(self, new_state):
-        """Set the output relay state (takes True/False)"""
-        if new_state:
-            self.write_register(4102, 1, functioncode=6)
-        else:
-            self.write_register(4102, 0, functioncode=6)
-
-    def toggleRS(self):
-        """Toggle the output relay state"""
-        if self.is_output_on:
-            self.set_output_on(False)
-        else:
-            self.set_output_on(True)
-
-        return self.is_output_on
-
-    def applySet(self, values):
+    def apply_set_points(self, values):
         """Set the voltage and current set points"""
-        SetU, SetI, off_before_change, on_after_change = values
-        #print(f"SetU: {SetU}, SetI {SetI}, off_before_change: {off_before_change}, on_after_change: {on_after_change}")
-        if SetU <= 0 or SetU >= self.MAX_U_RAW:
-            raise PS3010EC_Exception(
-                f'Requested voltage set point [{SetU/100}] out of range [{self.MAXIMUM_VOLTAGE}]'
-            )
+        volts, amps, off_before_change, on_after_change = values
 
-        if SetI <= 0 or SetI >= self.MAX_I_RAW:
-            raise PS3010EC_Exception(
-                f'Requested current set point [{SetI/100}] out of range [{self.MAXIMUM_CURRENT}]'
-            )
+        # print(f"volts: {volts}, amps: {amps}, off_before_change: {off_before_change}, on_after_change: {on_after_change}")
 
         if off_before_change:
-            self.set_output_on(False)
+            self.output = False
 
-        self.write_registers(4096, [SetU, SetI])
+        self.voltage = volts / 100
+        self.current = amps / 100
 
         if on_after_change == True:
-            self.set_output_on(True)
+            self.output = True
 
-    @property
-    def read_regulation_state(self):
-        """Read the regulation state (0,1,2)"""
-        rval = self.read_registers(4096, 6)
-        return rval[5]
+if __name__ == '__main__':
+    # Run some tests and output
+    psu = PSU(debug=True)
 
-    def enable_overcurrent_protection(self):
-        """enable overcurrent_protection"""
-        #self.write_register(4101, 2, functioncode=6)
-        # No modbus functions equivalent to pressing the OCP button on the front panel
-        pass
+    print(f'Output={psu.output}')
+    print(f'Voltage={psu.voltage}V')
+    print(f'Current={psu.current}A')
+    all_raw_values = psu.all_raw
+    print(all_raw_values)
+    psu.toggle_output()
+    print(f'Output={psu.output}')
+    psu.output = False
+    try:
+        psu.apply_set_points(
+            [psu.RawLimits.VOLTAGE + 10, psu.RawLimits.CURRENT, False, False])
+    except PSU_Exception as e:
+        print(e)
 
-    def disable_overcurrent_protection(self):
-        """disable overcurrent_protection"""
-        #self.write_register(4101, 1, functioncode=6)
-        # No modbus functions equivalent to pressing the OCP button on the front panel
-        pass
+    try:
+        psu.apply_set_points(
+            [psu.RawLimits.VOLTAGE, psu.RawLimits.CURRENT + 10, False, False])
+    except PSU_Exception as e:
+        print(e)
 
-    def write_set_points(self,
-                         set_u,
-                         set_i,
-                         OffBeforeChange=True,
-                         OnAfterChange=False):
-        """Set the voltage and current set points"""
-        if set_u >= 0.0 and set_u <= self.MAXIMUM_VOLTAGE:
-            raw_set_u = int(set_u * 100)
-        else:
-            raise PS3010EC_Exception(
-                f'Requested voltage set point [{set_u}] out of range [{self.MAXIMUM_VOLTAGE}]'
-            )
-
-        if set_i >= 0.0 and set_i <= self.MAXIMUM_CURRENT:
-            raw_set_i = int(set_i * 100)
-        else:
-            raise PS3010EC_Exception(
-                f'Requested current set point [{set_i}] out of range [{self.MAXIMUM_CURRENT}]'
-            )
-
-            self.set_output_on(False)
-
-        self.write_registers(4096, [raw_set_u, raw_set_i])
-
-
-#        if OnAfterChange == True and not relay_state:
-#            self.set_output_on(True)
+    psu.voltage = 38
